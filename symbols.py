@@ -4,7 +4,7 @@ import pandas as pd
 SYMBOLS = {
     "SPY": "S&P",
     "QQQ": "Nasdaq",
-    "DJI": "Dow",
+    "DIA": "Dow",
     "EUR": "Euro",
     "GBP": "British Pound",
     "JPY": "Japanese Yen",
@@ -78,7 +78,6 @@ SYMBOLS = {
     "SCHW": "Charles Schwab",
     "SPGI": "S&P Global",
     "CAT": "Caterpillar",
-    "T": "AT&T",
     "MDLZ": "Mondelez",
     "LRCX": "Lam Research",
     "ADI": "Analog Devices",
@@ -95,7 +94,6 @@ SYMBOLS = {
     "REGN": "Regeneron",
     "VRTX": "Vertex",
     "USB": "US Bank|U.S. Bancorp",
-    "SO": "Southern Company",
     "PGR": "Progressive",
     "DUK": "Duke Energy",
     "SHW": "Sherwin-Williams",
@@ -148,5 +146,22 @@ SYMBOLS = {
     "UL": "Unilever",
     "TT": "Trane Technologies",
     "SAN": "Banco Santander",
-    "NVS": "Novartis"
+    "NVS": "Novartis",
+    "RIVN": "Rivian",
+    "RDDT": "Reddit",
+    "BABA": "Alibaba",
+    "CHPT": "ChargePoint",
+    "DELL": "Dell",
+    "APP": "AppLovin",
+    "PANW": "Palo Alto Networks"
 }
+
+def article_mentions_symbol_or_company(title):
+    title_lower = title.lower()
+    for symbol, company in SYMBOLS.items():
+        if symbol.lower() in title_lower:
+            return True
+        for name in company.split('|'):
+            if name.lower() in title_lower:
+                return True
+    return False

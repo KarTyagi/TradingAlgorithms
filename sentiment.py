@@ -4,9 +4,7 @@ from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassifica
 
 def initialize_analyzer():
     try:
-        print("[DEBUG] Initializing analyzer...")
         analyzer = pipeline("sentiment-analysis", model="distilbert/distilbert-base-uncased-finetuned-sst-2-english")
-        print("[DEBUG] Analyzer initialized.")
         return analyzer
     except Exception as e:
         print(f"Error initializing model: {e}")

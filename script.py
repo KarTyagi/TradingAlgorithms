@@ -7,6 +7,31 @@ from datetime import datetime
 from sentiment import initialize_analyzer, initialize_absa, analyze_sentiment, analyze_aspect_sentiment, sentiment_score
 from news import scrape_yf, fetch_article_text, is_relevant_article
 from stocks import get_stock_price_and_metrics, extract_sp500_mentions, format_volume
+import requests
+
+def get_fmp_historical_closes(symbol, days=200, api_key="SlOrGMWxbNwTiJGDfIrkswILZdxmv6O3"):
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol.upper()}?timeseries={days}&apikey={api_key}"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if 'historical' in data:
+                closes = [bar['close'] for bar in data['historical']]
+                closes.reverse()
+                return closes
+        return []
+    except Exception as e:
+        print(f"[DEBUG] FMP API error (historical) for {symbol}: {e}")
+        return []
+
+def calculate_moving_averages(closes, windows=[20, 50, 200]):
+    ma = {}
+    for w in windows:
+        if len(closes) >= w:
+            ma[w] = round(sum(closes[-w:]) / w, 2)
+        else:
+            ma[w] = None
+    return ma
 
 def main():
     analyzer = initialize_analyzer()
@@ -14,7 +39,9 @@ def main():
     target_date = datetime.now().date()
     print(f"Fetching articles from Yahoo Finance for {target_date}...")
     articles = scrape_yf(target_date)
-    print(f"[DEBUG] scrape_yf returned {len(articles)} articles.")
+    print(f"[DEBUG] scrape_yf returned {len(articles)} articles before filtering.")
+    articles = articles[:25]
+    print(f"[DEBUG] scrape_yf using {len(articles)} articles after slicing to 25.")
     if not articles:
         print("No articles available to analyze. Check site structure or date availability.")
         return
@@ -33,57 +60,20 @@ def main():
         print(f"[DEBUG] Article {idx}: {title}")
         mentions = extract_sp500_mentions(title)
         print(f"[DEBUG] Mentions found: {mentions}")
+        if not mentions:
+            # Skip articles with no S&P 500 stock mentions
+            continue
         article_text = fetch_article_text(article["link"])
         short_date = str(target_date)[2:]
-        if not mentions:
-            if not include_non_stock:
-                continue
-            print("[DEBUG] No symbol/company found, analyzing sentiment of article only.")
-            sentiment_result = analyze_sentiment(analyzer, article_text or title)
-            if 'error' in sentiment_result:
-                confidence = ""
-                score = ""
-                sentiment_sign = "error"
-            else:
-                confidence = f"{sentiment_result['score']:.2%}"
-                score = sentiment_score(sentiment_result["label"], sentiment_result["score"])
-                label = sentiment_result["label"].lower()
-                if label == "positive":
-                    sentiment_sign = "+"
-                elif label == "negative":
-                    sentiment_sign = "-"
-                elif label == "neutral":
-                    sentiment_sign = "0"
-                else:
-                    sentiment_sign = label
-
-            table_data.append([
-                idx,
-                short_date,
-                "",
-                "",
-                "",      # Impact (v/t)
-                "",      # Company Name
-                "yahoo",
-                (title[:30] + "...") if len(title) > 33 else title,
-                sentiment_sign,
-                confidence,
-                score
-            ])
-            
-            continue
         for symbol, company in mentions:
             print(f"[DEBUG] Matched symbol: {symbol}, company: {company}")
             stock_price, stock_volume, stock_trades = get_stock_price_and_metrics(symbol)
-            # Calculate volume per trade (v/t)
             try:
                 vpt = float(stock_volume) / float(stock_trades) if float(stock_trades) > 0 else 0
             except Exception:
                 vpt = 0
             vpt_str = f"{vpt:,.1f}" if vpt else ""
-            # Use more context for ABSA: prefer article_text, fallback to title
             context = article_text if article_text else title
-            # Keyword-based sentiment adjustment
             keywords_positive = ["upgrade", "buy", "raise", "outperform", "beat", "growth", "profit"]
             keywords_negative = ["layoff", "cut", "downgrade", "sell", "underperform", "miss", "loss", "decline"]
             context_lower = context.lower()
@@ -94,13 +84,11 @@ def main():
                 keyword_sentiment = "negative"
             try:
                 label, raw_score, mapped_score = analyze_aspect_sentiment(absa_pipeline, context, symbol)
-                # If ABSA is neutral, try fallback to keyword or regular sentiment
                 if label == "neutral":
                     if keyword_sentiment:
                         label = keyword_sentiment
                         mapped_score = 1.0 if keyword_sentiment == "positive" else -1.0
                     else:
-                        # Fallback to regular sentiment analyzer
                         reg_result = analyze_sentiment(analyzer, context)
                         reg_label = reg_result.get("label", "neutral").lower()
                         if reg_label in ("positive", "negative"):
@@ -108,7 +96,6 @@ def main():
                             mapped_score = 1.0 if reg_label == "positive" else -1.0
                 print(f"[DEBUG] Sentiment for {symbol}: label={label}, raw_score={raw_score}, mapped_score={mapped_score}")
                 confidence = f"{raw_score:.2%}" if isinstance(raw_score, (int, float)) else ""
-                # Fix: mapped_score should be a float, not a percent string
                 mapped_score_val = round(mapped_score, 3) if isinstance(mapped_score, (int, float)) else ""
                 score_val = str(round((mapped_score * vpt) / 100, 3)) if isinstance(mapped_score, (int, float)) else ""
                 if label == "positive":
@@ -125,27 +112,123 @@ def main():
                 confidence = "N/A"
                 score = "N/A"
             table_data.append([
-                idx,                # 0
-                short_date,         # 1
-                symbol,             # 2
-                vpt_str,            # 3 (Impact)
-                company,            # 4
-                (title[:30] + "...") if len(title) > 33 else title,  # 5 (Article Title)
-                mapped_score_val,   # 6 (Mapped Score)
-                score_val,          # 7 (Score)
-                stock_price,        # 8 (Stock Price)
-                stock_volume,       # 9 (Volume)
-                stock_trades        # 10 (Number of Trades)
+                idx,
+                short_date,
+                symbol,
+                vpt_str,
+                company,
+                (title[:30] + "...") if len(title) > 33 else title,
+                mapped_score_val,
+                score_val,
+                stock_price,
+                stock_volume,
+                stock_trades
             ])
-    headers = ["#", "Date", "Symbol", "Impact", "Company Name", "Article Title", "Mapped Score", "Score"]
+    headers = ["#", "Date", "Symbol", "Company Name", "Article Title", "Score (s_4)"]
     print_headers = headers
-    print_table_data = [
-        [row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]]
-        for row in table_data
-    ]
+    print_table_data = []
+    for row in table_data:
+        symbol = row[2]
+        vpt_str = row[3]
+        mapped_score_val = row[6] if len(row) > 6 and isinstance(row[6], (int, float, str)) else ''
+        title = row[5] if len(row) > 5 and row[5] not in (None, '', 'N/A') else (row[7] if len(row) > 7 else '')
+        price = row[8] if len(row) > 8 and row[8] not in (None, '', 'N/A') else None
+        s_4 = ''
+        vpt = None
+        valid_row = bool(symbol and price not in (None, '', 'N/A'))
+        try:
+            vpt = float(vpt_str.replace(',', '')) if isinstance(vpt_str, str) and vpt_str else float(vpt_str)
+        except Exception:
+            vpt = None
+        if valid_row:
+            closes = get_fmp_historical_closes(symbol, days=200)
+            ma = calculate_moving_averages(closes)
+            m20, m50, m200 = ma[20], ma[50], ma[200]
+            mf = ''
+            if all(isinstance(x, (int, float)) and x not in (None, 0) for x in [m20, m50, m200]):
+                try:
+                    mf = 0.5 * ((float(price) - m20) / m20) + 0.3 * ((float(price) - m50) / m50) + 0.2 * ((float(price) - m200) / m200)
+                    mf = round(mf, 4)
+                except Exception:
+                    mf = ''
+            try:
+                mapped_score = float(mapped_score_val) if mapped_score_val not in (None, '', 'N/A', 'yahoo') else ''
+                if vpt is not None and mapped_score != '' and mf != '':
+                    s_4 = ((mapped_score * vpt) / 100) * (1 + 2 * mf)
+                    s_4 = round(s_4, 4)
+                else:
+                    s_4 = ''
+            except Exception:
+                s_4 = ''
+        print_table_data.append([
+            row[0] if len(row) > 0 else '',
+            row[1] if len(row) > 1 else '',
+            symbol,
+            row[4] if len(row) > 4 else '',
+            title,
+            s_4
+        ])
+    headers = ["#", "Date", "Symbol", "Company Name", "Article Title", "Score (s_4)"]
+    print_headers = headers
+    print_table_data = []
+    for row in table_data:
+        symbol = row[2]
+        vpt_str = row[3]
+        mapped_score_val = row[6] if len(row) > 6 and isinstance(row[6], (int, float, str)) else ''
+        title = row[5] if len(row) > 5 and row[5] not in (None, '', 'N/A') else (row[7] if len(row) > 7 else '')
+        price = row[8] if len(row) > 8 and row[8] not in (None, '', 'N/A') else None
+        s_4 = ''
+        vpt = None
+        valid_row = bool(symbol and price not in (None, '', 'N/A'))
+        try:
+            vpt = float(vpt_str.replace(',', '')) if isinstance(vpt_str, str) and vpt_str else float(vpt_str)
+        except Exception:
+            vpt = None
+        if valid_row:
+            closes = get_fmp_historical_closes(symbol, days=200)
+            ma = calculate_moving_averages(closes)
+            m20, m50, m200 = ma[20], ma[50], ma[200]
+            mf = ''
+            if all(isinstance(x, (int, float)) and x not in (None, 0) for x in [m20, m50, m200]):
+                try:
+                    mf = 0.5 * ((float(price) - m20) / m20) + 0.3 * ((float(price) - m50) / m50) + 0.2 * ((float(price) - m200) / m200)
+                    mf = round(mf, 4)
+                except Exception:
+                    mf = ''
+            try:
+                mapped_score = float(mapped_score_val) if mapped_score_val not in (None, '', 'N/A', 'yahoo') else ''
+                if vpt is not None and mapped_score != '' and mf != '':
+                    s_4 = ((mapped_score * vpt) / 100) * (1 + 2 * mf)
+                    s_4 = round(s_4, 4)
+                else:
+                    s_4 = ''
+            except Exception:
+                s_4 = ''
+        print_table_data.append([
+            row[0] if len(row) > 0 else '',
+            row[1] if len(row) > 1 else '',
+            symbol,
+            row[4] if len(row) > 4 else '',
+            title,
+            s_4
+        ])
     print(f"\nProcessed {len(table_data)} articles.")
     print("Results:")
-    print(tabulate(print_table_data, headers=print_headers, tablefmt="grid"))
+    if print_table_data and any(any(str(cell).strip() for cell in row) for row in print_table_data):
+        print(tabulate(print_table_data, headers=print_headers, tablefmt="grid"))
+    else:
+        print("No valid data to display in the main table.")
+    if table_data:
+        article_links = [article["link"] for article in articles]
+        print("\nEnter the number of the article you want the link for (1-{}), or 0 for none:".format(len(article_links)))
+        for i, article in enumerate(articles, 1):
+            print(f"{i}: {article['title']}")
+        try:
+            link_choice = int(input("Article number (0 for none): ").strip())
+        except Exception:
+            link_choice = 0
+        if link_choice > 0 and link_choice <= len(article_links):
+            print(f"Link for article {link_choice}: {article_links[link_choice-1]}")
     if table_data:
         df = pd.DataFrame(print_table_data, columns=headers)
         if os.path.exists('sentiment_results.csv'):
@@ -171,8 +254,7 @@ def main():
             else:
                 f.write(new_data)
         print("\n The data table has been updated.")
-        # Ask user if they want to see the raw data table
-        show_raw = input("Would you like to see the raw data table including stock price, volume, and number of trades? (y/n): ").strip().lower() == 'y'
+        show_raw = input("Would you like to see the raw data table including stock price, volume, number of trades, MAs, Impact, and M_f? (y/n): ").strip().lower() == 'y'
         if show_raw:
             def format_large(val):
                 try:
@@ -187,18 +269,48 @@ def main():
                         return str(int(val))
                 except Exception:
                     return str(val)
-            raw_headers = ["Symbol", "Stock Price", "Volume", "Number of Trades"]
-            raw_table_data = [
-                [
-                    row[2],
-                    row[8],
-                    format_large(row[9]),
-                    format_large(row[10])
-                ]
-                for row in table_data
-            ]
-            print("\nRaw Data Table:")
-            print(tabulate(raw_table_data, headers=raw_headers, tablefmt="grid"))
+            raw_headers = ["Symbol", "Stock Price", "Volume", "Number of Trades", "MA20", "MA50", "MA200", "Impact (vpt)", "M_f"]
+            raw_table_data = []
+            for row in table_data:
+                symbol = row[2]
+                price = row[8] if len(row) > 8 and row[8] not in (None, '', 'N/A') else None
+                volume = row[9] if len(row) > 9 else ''
+                trades = row[10] if len(row) > 10 else ''
+                vpt_str = row[3]
+                ma20 = ma50 = ma200 = mf = ''
+                vpt = None
+                try:
+                    vpt = float(vpt_str.replace(',', '')) if isinstance(vpt_str, str) and vpt_str else float(vpt_str)
+                except Exception:
+                    vpt = None
+                if symbol and price not in (None, '', 'N/A'):
+                    closes = get_fmp_historical_closes(symbol, days=200)
+                    ma = calculate_moving_averages(closes)
+                    ma20, ma50, ma200 = ma[20], ma[50], ma[200]
+                    if all(isinstance(x, (int, float)) and x not in (None, 0) for x in [ma20, ma50, ma200]):
+                        try:
+                            mf = 0.5 * ((float(price) - ma20) / ma20) + 0.3 * ((float(price) - ma50) / ma50) + 0.2 * ((float(price) - ma200) / ma200)
+                            mf = round(mf, 4)
+                        except Exception:
+                            mf = ''
+                    else:
+                        ma20 = ma50 = ma200 = mf = ''
+                raw_table_data.append([
+                    symbol,
+                    price,
+                    format_large(volume),
+                    format_large(trades),
+                    ma20,
+                    ma50,
+                    ma200,
+                    vpt_str,
+                    mf
+                ])
+            if raw_table_data and any(any(str(cell).strip() for cell in row) for row in raw_table_data):
+                print("\nRaw Data Table:")
+                print(tabulate(raw_table_data, headers=raw_headers, tablefmt="grid"))
+            else:
+                print("No valid data to display in the raw data table.")
     else:
         print("No data to write to CSV.")
 
