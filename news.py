@@ -1,18 +1,3 @@
-
-"""
-news.py
-This module provides utilities for scraping and filtering financial news articles from Yahoo Finance.
-Functions:
-    is_relevant_article(title, link):
-        Determines if an article is relevant based on its title and link.
-        Filters out paywalled domains and articles with excluded keywords.
-    fetch_article_text(url):
-        Fetches and extracts the main text content from a news article given its URL.
-        Attempts to find the main article body, falls back to all paragraphs if necessary.
-    scrape_yf(target_date):
-        Scrapes Yahoo Finance news articles, filtering by relevance and recency.
-        Returns a list of up to 10 relevant articles published within the last day from the target date.
-"""
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta

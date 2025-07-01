@@ -92,7 +92,7 @@ SYMBOLS = {
     "CI": "Cigna",
     "MU": "Micron",
     "REGN": "Regeneron",
-    "VRTX": "Vertex",
+    "VERX": "Vertex",
     "USB": "US Bank|U.S. Bancorp",
     "PGR": "Progressive",
     "DUK": "Duke Energy",

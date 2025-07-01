@@ -1,13 +1,14 @@
 import os
-import re
-import sys
 import pandas as pd
+import numpy as np
 from tabulate import tabulate
 from datetime import datetime
-from sentiment import initialize_analyzer, initialize_absa, analyze_sentiment, analyze_aspect_sentiment, sentiment_score
-from news import scrape_yf, fetch_article_text, is_relevant_article
-from stocks import get_stock_price_and_metrics, extract_sp500_mentions, format_volume
+from sentiment import initialize_analyzer, initialize_absa, analyze_sentiment, analyze_aspect_sentiment
+from news import scrape_yf, fetch_article_text
+from stocks import get_stock_price_and_metrics, extract_sp500_mentions
 import requests
+from scipy.stats import norm
+
 
 def get_fmp_historical_closes(symbol, days=200, api_key="SlOrGMWxbNwTiJGDfIrkswILZdxmv6O3"):
     url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol.upper()}?timeseries={days}&apikey={api_key}"
@@ -24,6 +25,7 @@ def get_fmp_historical_closes(symbol, days=200, api_key="SlOrGMWxbNwTiJGDfIrkswI
         print(f"[DEBUG] FMP API error (historical) for {symbol}: {e}")
         return []
 
+
 def calculate_moving_averages(closes, windows=[20, 50, 200]):
     ma = {}
     for w in windows:
@@ -32,6 +34,7 @@ def calculate_moving_averages(closes, windows=[20, 50, 200]):
         else:
             ma[w] = None
     return ma
+
 
 def main():
     analyzer = initialize_analyzer()
@@ -45,23 +48,22 @@ def main():
     if not articles:
         print("No articles available to analyze. Check site structure or date availability.")
         return
-    include_non_stock = input("Include articles that do not mention any stocks? (y/n): ").strip().lower() == 'y'
-    attempt = 1
     if os.path.exists('sentiment_results.csv'):
         try:
             prev_df = pd.read_csv('sentiment_results.csv')
             if 'Attempt' in prev_df.columns:
-                attempt = prev_df['Attempt'].max() + 1
+                _ = prev_df['Attempt'].max() + 1
         except Exception:
             pass
     table_data = []
+    closes_cache = {}
+    ma_cache = {}
     for idx, article in enumerate(articles, 1):
         title = article["title"]
         print(f"[DEBUG] Article {idx}: {title}")
         mentions = extract_sp500_mentions(title)
         print(f"[DEBUG] Mentions found: {mentions}")
         if not mentions:
-            # Skip articles with no S&P 500 stock mentions
             continue
         article_text = fetch_article_text(article["link"])
         short_date = str(target_date)[2:]
@@ -95,22 +97,9 @@ def main():
                             label = reg_label
                             mapped_score = 1.0 if reg_label == "positive" else -1.0
                 print(f"[DEBUG] Sentiment for {symbol}: label={label}, raw_score={raw_score}, mapped_score={mapped_score}")
-                confidence = f"{raw_score:.2%}" if isinstance(raw_score, (int, float)) else ""
                 mapped_score_val = round(mapped_score, 3) if isinstance(mapped_score, (int, float)) else ""
-                score_val = str(round((mapped_score * vpt) / 100, 3)) if isinstance(mapped_score, (int, float)) else ""
-                if label == "positive":
-                    sentiment_sign = "+"
-                elif label == "negative":
-                    sentiment_sign = "-"
-                elif label == "neutral":
-                    sentiment_sign = "0"
-                else:
-                    sentiment_sign = label
             except Exception as e:
                 print(f"[DEBUG] Sentiment analysis error for {symbol}: {e}")
-                sentiment_sign = "error"
-                confidence = "N/A"
-                score = "N/A"
             table_data.append([
                 idx,
                 short_date,
@@ -119,30 +108,35 @@ def main():
                 company,
                 (title[:30] + "...") if len(title) > 33 else title,
                 mapped_score_val,
-                score_val,
                 stock_price,
                 stock_volume,
                 stock_trades
             ])
-    headers = ["#", "Date", "Symbol", "Company Name", "Article Title", "Score (s_4)"]
+    headers = ["#", "Date", "Symbol", "Company Name", "Article Title", "s_8"]
     print_headers = headers
     print_table_data = []
-    for row in table_data:
+    phi = None
+    t = None
+    for i, row in enumerate(table_data):
         symbol = row[2]
-        vpt_str = row[3]
+        title = row[5] if len(row) > 5 and row[5] not in (None, '', 'N/A') else ''
+        s_6 = ''
+        price = row[7] if len(row) > 7 and row[7] not in (None, '', 'N/A') else None
         mapped_score_val = row[6] if len(row) > 6 and isinstance(row[6], (int, float, str)) else ''
-        title = row[5] if len(row) > 5 and row[5] not in (None, '', 'N/A') else (row[7] if len(row) > 7 else '')
-        price = row[8] if len(row) > 8 and row[8] not in (None, '', 'N/A') else None
-        s_4 = ''
-        vpt = None
+        vpt_str = row[3]
         valid_row = bool(symbol and price not in (None, '', 'N/A'))
+        vpt = None
         try:
             vpt = float(vpt_str.replace(',', '')) if isinstance(vpt_str, str) and vpt_str else float(vpt_str)
         except Exception:
             vpt = None
         if valid_row:
-            closes = get_fmp_historical_closes(symbol, days=200)
-            ma = calculate_moving_averages(closes)
+            if symbol not in closes_cache:
+                closes_cache[symbol] = get_fmp_historical_closes(symbol, days=200)
+            closes = closes_cache[symbol]
+            if symbol not in ma_cache:
+                ma_cache[symbol] = calculate_moving_averages(closes)
+            ma = ma_cache[symbol]
             m20, m50, m200 = ma[20], ma[50], ma[200]
             mf = ''
             if all(isinstance(x, (int, float)) and x not in (None, 0) for x in [m20, m50, m200]):
@@ -154,92 +148,55 @@ def main():
             try:
                 mapped_score = float(mapped_score_val) if mapped_score_val not in (None, '', 'N/A', 'yahoo') else ''
                 if vpt is not None and mapped_score != '' and mf != '':
-                    s_4 = ((mapped_score * vpt) / 100) * (1 + 2 * mf)
-                    s_4 = round(s_4, 4)
+                    s_6 = (10 ** -4) * (mapped_score * vpt * price) * (1 + 2 * mf)
+                    s_6 = round(s_6, 3)
                 else:
-                    s_4 = ''
+                    s_6 = ''
             except Exception:
-                s_4 = ''
+                s_6 = ''
         print_table_data.append([
             row[0] if len(row) > 0 else '',
             row[1] if len(row) > 1 else '',
             symbol,
             row[4] if len(row) > 4 else '',
             title,
-            s_4
+            s_8
         ])
-    headers = ["#", "Date", "Symbol", "Company Name", "Article Title", "Score (s_4)"]
-    print_headers = headers
-    print_table_data = []
-    for row in table_data:
-        symbol = row[2]
-        vpt_str = row[3]
-        mapped_score_val = row[6] if len(row) > 6 and isinstance(row[6], (int, float, str)) else ''
-        title = row[5] if len(row) > 5 and row[5] not in (None, '', 'N/A') else (row[7] if len(row) > 7 else '')
-        price = row[8] if len(row) > 8 and row[8] not in (None, '', 'N/A') else None
-        s_4 = ''
-        vpt = None
-        valid_row = bool(symbol and price not in (None, '', 'N/A'))
-        try:
-            vpt = float(vpt_str.replace(',', '')) if isinstance(vpt_str, str) and vpt_str else float(vpt_str)
-        except Exception:
-            vpt = None
-        if valid_row:
-            closes = get_fmp_historical_closes(symbol, days=200)
-            ma = calculate_moving_averages(closes)
-            m20, m50, m200 = ma[20], ma[50], ma[200]
-            mf = ''
-            if all(isinstance(x, (int, float)) and x not in (None, 0) for x in [m20, m50, m200]):
-                try:
-                    mf = 0.5 * ((float(price) - m20) / m20) + 0.3 * ((float(price) - m50) / m50) + 0.2 * ((float(price) - m200) / m200)
-                    mf = round(mf, 4)
-                except Exception:
-                    mf = ''
+        if i == 0:
             try:
-                mapped_score = float(mapped_score_val) if mapped_score_val not in (None, '', 'N/A', 'yahoo') else ''
-                if vpt is not None and mapped_score != '' and mf != '':
-                    s_4 = ((mapped_score * vpt) / 100) * (1 + 2 * mf)
-                    s_4 = round(s_4, 4)
-                else:
-                    s_4 = ''
+                s_6_val = float(s_6) if s_6 not in (None, '', 'N/A') else 0.0
+                phi = 2 * norm.cdf(s_6_val) - 1
+                t = (2 / np.pi) * np.arctan(s_6_val)
+                avg_phi_t = (phi + t) / 2
+                s_8 = (1 / np.pi) * np.arctan(s_6_val) + norm.cdf(s_6_val) - (1 / 2)
             except Exception:
-                s_4 = ''
-        print_table_data.append([
-            row[0] if len(row) > 0 else '',
-            row[1] if len(row) > 1 else '',
-            symbol,
-            row[4] if len(row) > 4 else '',
-            title,
-            s_4
-        ])
+                phi = None
+                t = None
+                avg_phi_t = None
     print(f"\nProcessed {len(table_data)} articles.")
     print("Results:")
     if print_table_data and any(any(str(cell).strip() for cell in row) for row in print_table_data):
         print(tabulate(print_table_data, headers=print_headers, tablefmt="grid"))
     else:
         print("No valid data to display in the main table.")
-    if table_data:
-        article_links = [article["link"] for article in articles]
-        print("\nEnter the number of the article you want the link for (1-{}), or 0 for none:".format(len(article_links)))
-        for i, article in enumerate(articles, 1):
-            print(f"{i}: {article['title']}")
-        try:
-            link_choice = int(input("Article number (0 for none): ").strip())
-        except Exception:
-            link_choice = 0
-        if link_choice > 0 and link_choice <= len(article_links):
-            print(f"Link for article {link_choice}: {article_links[link_choice-1]}")
+    if phi is not None:
+        print(f"\nPhi for first stock: {phi}")
+    if 't' in locals() and t is not None:
+        print(f"t for first stock: {t}")
+    if 'avg_phi_t' in locals() and avg_phi_t is not None:
+        print(f"Average of phi and t: {avg_phi_t}")
+    if 's_8' in locals() and s_8 is not None:
+        print(f"s_8 for first stock: {s_8}")
+    print("\n The data table has been updated.")
     if table_data:
         df = pd.DataFrame(print_table_data, columns=headers)
+        prev_lines = []
         if os.path.exists('sentiment_results.csv'):
             try:
-                prev_lines = []
                 with open('sentiment_results.csv', 'r', encoding='utf-8') as f:
                     prev_lines = f.readlines()
             except Exception:
                 prev_lines = []
-        else:
-            prev_lines = []
         separator = '_' * 20 + '\n'
         from io import StringIO
         output = StringIO()
@@ -253,8 +210,7 @@ def main():
                 f.write(new_data if not new_data.startswith('#') else new_data.split('\n',1)[1])
             else:
                 f.write(new_data)
-        print("\n The data table has been updated.")
-        show_raw = input("Would you like to see the raw data table including stock price, volume, number of trades, MAs, Impact, and M_f? (y/n): ").strip().lower() == 'y'
+        show_raw = input("Would you like to see the raw data table? (y/n): ").strip().lower() == 'y'
         if show_raw:
             def format_large(val):
                 try:
@@ -269,14 +225,17 @@ def main():
                         return str(int(val))
                 except Exception:
                     return str(val)
-            raw_headers = ["Symbol", "Stock Price", "Volume", "Number of Trades", "MA20", "MA50", "MA200", "Impact (vpt)", "M_f"]
+            raw_headers = [
+                "Symbol", "Stock Price", "Volume", "Number of Trades", "Impact", "Mapped Score", "MA20", "MA50", "MA200", "M_f"
+            ]
             raw_table_data = []
             for row in table_data:
                 symbol = row[2]
-                price = row[8] if len(row) > 8 and row[8] not in (None, '', 'N/A') else None
-                volume = row[9] if len(row) > 9 else ''
-                trades = row[10] if len(row) > 10 else ''
+                price = row[7] if len(row) > 7 and row[7] not in (None, '', 'N/A') else None
+                volume = row[8] if len(row) > 8 else ''
+                trades = row[9] if len(row) > 9 else ''
                 vpt_str = row[3]
+                mapped_score_val = row[6] if len(row) > 6 else ''
                 ma20 = ma50 = ma200 = mf = ''
                 vpt = None
                 try:
@@ -284,8 +243,8 @@ def main():
                 except Exception:
                     vpt = None
                 if symbol and price not in (None, '', 'N/A'):
-                    closes = get_fmp_historical_closes(symbol, days=200)
-                    ma = calculate_moving_averages(closes)
+                    closes = closes_cache.get(symbol, [])
+                    ma = ma_cache.get(symbol, {20: '', 50: '', 200: ''})
                     ma20, ma50, ma200 = ma[20], ma[50], ma[200]
                     if all(isinstance(x, (int, float)) and x not in (None, 0) for x in [ma20, ma50, ma200]):
                         try:
@@ -300,10 +259,11 @@ def main():
                     price,
                     format_large(volume),
                     format_large(trades),
+                    vpt_str,
+                    mapped_score_val,
                     ma20,
                     ma50,
                     ma200,
-                    vpt_str,
                     mf
                 ])
             if raw_table_data and any(any(str(cell).strip() for cell in row) for row in raw_table_data):
@@ -314,3 +274,6 @@ def main():
     else:
         print("No data to write to CSV.")
 
+
+if __name__ == "__main__":
+    main()
