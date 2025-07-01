@@ -314,5 +314,3 @@ def main():
     else:
         print("No data to write to CSV.")
 
-if __name__ == "__main__":
-    main()
