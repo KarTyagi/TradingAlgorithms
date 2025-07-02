@@ -2,16 +2,21 @@ import requests
 import pandas as pd
 
 SYMBOLS = {
+    "VIX": "Volatility Index",
+    "VIX": "Volatility Index",
+    "VVIX": "Volatility of Volatility Index",
     "SPY": "S&P",
     "QQQ": "Nasdaq",
-    "DIA": "Dow",
+    "QQQ": "3Q",
+    "QQQ": "QQQ",
+    "QQQ": "Tech",
     "EUR": "Euro",
     "GBP": "British Pound",
     "JPY": "Japanese Yen",
     "CNY": "Chinese Yuan",
     "USD": "Dollar",
     "BTC": "Bitcoin",
-    "QQQ": "Tech",
+    "GLD": "Gold",
     "AAPL": "Apple",
     "MSFT": "Microsoft",
     "GOOGL": "Alphabet|Google",
@@ -153,7 +158,17 @@ SYMBOLS = {
     "CHPT": "ChargePoint",
     "DELL": "Dell",
     "APP": "AppLovin",
-    "PANW": "Palo Alto Networks"
+    "PANW": "Palo Alto Networks",
+    "AXP": "American Express",
+    "AXP": "Amex",
+    "STM": "STMicroelectronics",
+    "PLTR": "Palantir",
+    "CTAS": "Cintas",
+    "TTE": "TotalEnergies",
+    "RF": "Regions Financial",
+    "DJT": "Trump Media & Technology",
+    "DJT": "Trump",
+    "EQT": "EQT"
 }
 
 def article_mentions_symbol_or_company(title):

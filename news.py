@@ -47,7 +47,7 @@ def scrape_yf(target_date):
             return []
         article_data = []
         cutoff_date = target_date - timedelta(days=1)
-        for article in articles[:20]:
+        for article in articles:  # <-- FIX: scan all articles, not just 20
             title_elem = article.find("h3")
             if not title_elem:
                 continue
@@ -68,7 +68,7 @@ def scrape_yf(target_date):
                     pass
             if is_relevant_article(title, link):
                 article_data.append({"title": title, "link": link})
-            if len(article_data) >= 10:
+            if len(article_data) >= 25:
                 break
         if not article_data:
             print("No relevant articles matched the date criteria or were found.")

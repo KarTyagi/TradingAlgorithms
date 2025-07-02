@@ -43,7 +43,8 @@ def main():
     print(f"Fetching articles from Yahoo Finance for {target_date}...")
     articles = scrape_yf(target_date)
     print(f"[DEBUG] scrape_yf returned {len(articles)} articles before filtering.")
-    articles = articles[:25]
+    if len(articles) > 25:
+        articles = articles[:25]
     print(f"[DEBUG] scrape_yf using {len(articles)} articles after slicing to 25.")
     if not articles:
         print("No articles available to analyze. Check site structure or date availability.")
@@ -76,8 +77,8 @@ def main():
                 vpt = 0
             vpt_str = f"{vpt:,.1f}" if vpt else ""
             context = article_text if article_text else title
-            keywords_positive = ["upgrade", "buy", "raise", "outperform", "beat", "growth", "profit"]
-            keywords_negative = ["layoff", "cut", "downgrade", "sell", "underperform", "miss", "loss", "decline"]
+            keywords_positive = ["upgrade", "buy", "raise", "outperform", "beat", "growth", "profit", "merge", "acquisition"]
+            keywords_negative = ["layoff", "cut", "downgrade", "sell", "underperform", "miss", "loss", "decline", "lawsuit", "fail"]
             context_lower = context.lower()
             keyword_sentiment = None
             if any(word in context_lower for word in keywords_positive):
@@ -117,6 +118,8 @@ def main():
     print_table_data = []
     phi = None
     t = None
+    s_8 = None
+    s_8_list = []
     for i, row in enumerate(table_data):
         symbol = row[2]
         title = row[5] if len(row) > 5 and row[5] not in (None, '', 'N/A') else ''
@@ -154,21 +157,27 @@ def main():
                     s_6 = ''
             except Exception:
                 s_6 = ''
+        # Calculate s_8 for this stock
+        s_8_val = None
+        try:
+            s_6_val = float(s_6) if s_6 not in (None, '', 'N/A') else 0.0
+            s_8_val = (1 / np.pi) * np.arctan(s_6_val) + norm.cdf(s_6_val) - (1 / 2)
+        except Exception:
+            s_8_val = None
+        s_8_list.append(s_8_val)
         print_table_data.append([
             row[0] if len(row) > 0 else '',
             row[1] if len(row) > 1 else '',
             symbol,
             row[4] if len(row) > 4 else '',
             title,
-            s_8
+            s_8_val
         ])
         if i == 0:
             try:
-                s_6_val = float(s_6) if s_6 not in (None, '', 'N/A') else 0.0
                 phi = 2 * norm.cdf(s_6_val) - 1
                 t = (2 / np.pi) * np.arctan(s_6_val)
                 avg_phi_t = (phi + t) / 2
-                s_8 = (1 / np.pi) * np.arctan(s_6_val) + norm.cdf(s_6_val) - (1 / 2)
             except Exception:
                 phi = None
                 t = None
@@ -179,14 +188,6 @@ def main():
         print(tabulate(print_table_data, headers=print_headers, tablefmt="grid"))
     else:
         print("No valid data to display in the main table.")
-    if phi is not None:
-        print(f"\nPhi for first stock: {phi}")
-    if 't' in locals() and t is not None:
-        print(f"t for first stock: {t}")
-    if 'avg_phi_t' in locals() and avg_phi_t is not None:
-        print(f"Average of phi and t: {avg_phi_t}")
-    if 's_8' in locals() and s_8 is not None:
-        print(f"s_8 for first stock: {s_8}")
     print("\n The data table has been updated.")
     if table_data:
         df = pd.DataFrame(print_table_data, columns=headers)
@@ -226,7 +227,7 @@ def main():
                 except Exception:
                     return str(val)
             raw_headers = [
-                "Symbol", "Stock Price", "Volume", "Number of Trades", "Impact", "Mapped Score", "MA20", "MA50", "MA200", "M_f"
+                "Symbol", "Stock Price", "Volume", "Number of Trades", "Impact", "Mapped Score", "AD20", "AD50", "AD200", "M_f"
             ]
             raw_table_data = []
             for row in table_data:
@@ -236,7 +237,7 @@ def main():
                 trades = row[9] if len(row) > 9 else ''
                 vpt_str = row[3]
                 mapped_score_val = row[6] if len(row) > 6 else ''
-                ma20 = ma50 = ma200 = mf = ''
+                ad20 = ad50 = ad200 = mf = ''
                 vpt = None
                 try:
                     vpt = float(vpt_str.replace(',', '')) if isinstance(vpt_str, str) and vpt_str else float(vpt_str)
@@ -246,6 +247,18 @@ def main():
                     closes = closes_cache.get(symbol, [])
                     ma = ma_cache.get(symbol, {20: '', 50: '', 200: ''})
                     ma20, ma50, ma200 = ma[20], ma[50], ma[200]
+                    try:
+                        ad20 = round(float(price) - ma20, 3) if ma20 not in (None, 0, '') else ''
+                    except Exception:
+                        ad20 = ''
+                    try:
+                        ad50 = round(float(price) - ma50, 3) if ma50 not in (None, 0, '') else ''
+                    except Exception:
+                        ad50 = ''
+                    try:
+                        ad200 = round(float(price) - ma200, 3) if ma200 not in (None, 0, '') else ''
+                    except Exception:
+                        ad200 = ''
                     if all(isinstance(x, (int, float)) and x not in (None, 0) for x in [ma20, ma50, ma200]):
                         try:
                             mf = 0.5 * ((float(price) - ma20) / ma20) + 0.3 * ((float(price) - ma50) / ma50) + 0.2 * ((float(price) - ma200) / ma200)
@@ -253,7 +266,7 @@ def main():
                         except Exception:
                             mf = ''
                     else:
-                        ma20 = ma50 = ma200 = mf = ''
+                        mf = ''
                 raw_table_data.append([
                     symbol,
                     price,
@@ -261,9 +274,9 @@ def main():
                     format_large(trades),
                     vpt_str,
                     mapped_score_val,
-                    ma20,
-                    ma50,
-                    ma200,
+                    ad20,
+                    ad50,
+                    ad200,
                     mf
                 ])
             if raw_table_data and any(any(str(cell).strip() for cell in row) for row in raw_table_data):
