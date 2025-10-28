@@ -113,7 +113,7 @@ def main():
                 stock_volume,
                 stock_trades
             ])
-    headers = ["#", "Date", "Symbol", "Company Name", "Article Title", "s_8"]
+    headers = ["#", "Date", "Symbol", "Company Name", "Article Title", "Mapped Score", "s_8"]
     print_headers = headers
     print_table_data = []
     phi = None
@@ -151,17 +151,17 @@ def main():
             try:
                 mapped_score = float(mapped_score_val) if mapped_score_val not in (None, '', 'N/A', 'yahoo') else ''
                 if vpt is not None and mapped_score != '' and mf != '':
-                    s_6 = (10 ** -4) * (mapped_score * vpt * price) * (1 + 2 * mf)
+                    s_6 = (10 ** -4) * (vpt * price) * (1 + 2 * mf)
                     s_6 = round(s_6, 3)
                 else:
                     s_6 = ''
             except Exception:
                 s_6 = ''
-        # Calculate s_8 for this stock
+        # Calculate s_8
         s_8_val = None
         try:
             s_6_val = float(s_6) if s_6 not in (None, '', 'N/A') else 0.0
-            s_8_val = (1 / np.pi) * np.arctan(s_6_val) + norm.cdf(s_6_val) - (1 / 2)
+            s_8_val = 2 * norm.cdf(s_6_val) - 1
         except Exception:
             s_8_val = None
         s_8_list.append(s_8_val)
@@ -171,6 +171,7 @@ def main():
             symbol,
             row[4] if len(row) > 4 else '',
             title,
+            mapped_score_val,
             s_8_val
         ])
         if i == 0:
@@ -227,7 +228,7 @@ def main():
                 except Exception:
                     return str(val)
             raw_headers = [
-                "Symbol", "Stock Price", "Volume", "Number of Trades", "Impact", "Mapped Score", "AD20", "AD50", "AD200", "M_f"
+                "Symbol", "Stock Price", "Volume", "Number of Trades", "Impact", "AD20", "AD50", "AD200", "M_f"
             ]
             raw_table_data = []
             for row in table_data:
@@ -236,7 +237,6 @@ def main():
                 volume = row[8] if len(row) > 8 else ''
                 trades = row[9] if len(row) > 9 else ''
                 vpt_str = row[3]
-                mapped_score_val = row[6] if len(row) > 6 else ''
                 ad20 = ad50 = ad200 = mf = ''
                 vpt = None
                 try:
@@ -273,7 +273,6 @@ def main():
                     format_large(volume),
                     format_large(trades),
                     vpt_str,
-                    mapped_score_val,
                     ad20,
                     ad50,
                     ad200,
