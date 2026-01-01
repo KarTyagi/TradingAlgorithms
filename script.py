@@ -38,8 +38,11 @@ def calculate_moving_averages(closes, windows=[20, 50, 200]):
 
 def main():
     analyzer = initialize_analyzer()
+
     absa_pipeline = initialize_absa()
+    
     target_date = datetime.now().date()
+    
     print(f"Fetching articles from Yahoo Finance for {target_date}...")
     articles = scrape_yf(target_date)
     print(f"[DEBUG] scrape_yf returned {len(articles)} articles before filtering.")
