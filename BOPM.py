@@ -6,9 +6,9 @@ start_time = time.time()
 # Initialize parameters
 S0 = 100
 K = 100
-T = 0.17
-r = 0.04
-N =  10**4
+T = 0.5
+r = 0.17
+N =  10**3
 u = 1.0001
 d = 1/u
 opttype = 'C' # or 'P'
