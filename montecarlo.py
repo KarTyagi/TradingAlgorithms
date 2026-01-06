@@ -11,7 +11,7 @@ u = 0.07
 T = 1
 dt = 1/252
 N = int(T/dt)
-sims = 1000
+sims = 100000
 
 # Option vars
 K = 100
