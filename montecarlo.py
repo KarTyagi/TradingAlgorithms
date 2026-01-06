@@ -11,7 +11,7 @@ u = 0.07
 T = 1
 dt = 1/252
 N = int(T/dt)
-sims = 100000
+sims = 1000
 
 # Option vars
 K = 100
@@ -23,6 +23,7 @@ volatilities = []
 sharpe = []
 all_ma20 = []
 C_list = []
+sample_prices = []
 
 # Loop to generate simulations
 for i in range(sims):
@@ -38,6 +39,9 @@ for i in range(sims):
         shock = np.random.normal(loc=(u * dt), scale=(s*np.sqrt(dt)))
         prices.append(prices[-1] * np.exp(shock))
         daily_returns.append((prices[-1] - prices[-2]) / prices[-2])
+
+    if i < 10:
+        sample_prices.append(prices.copy())
 
     # Price is on the first graph
     #plt.plot(prices, label=f'Sim {i+1} Price')
@@ -69,20 +73,14 @@ for i in range(sims):
 #    ))
 
 # Price graph
-#plt.title('Monte Carlo Sim')
-#plt.xlabel("Days")
-#plt.ylabel("Price")
-
-# MA graph
-#plt.figure(2)
-
-#for i, ma20 in enumerate(all_ma20):
-    #plt.plot(range(len(ma20)), ma20, label=f'Sim {i+1} MA20')
-
-#plt.title('MA20')
-#plt.xlabel("Days")
-#plt.ylabel("Price")
-#plt.show()
+plt.figure()
+plt.title('Monte Carlo Sim - Sample Price Paths')
+plt.xlabel("Days")
+plt.ylabel("Price")
+for idx, path in enumerate(sample_prices):
+    plt.plot(path, label=f'Sim {idx+1} Price')
+plt.show()
+plt.show()
 
 # Distribution plot
 end_time = time.time()

@@ -1,23 +1,25 @@
 import re
 import requests
+import yfinance as yf
 from symbols import SYMBOLS
 
 def get_stock_price_and_metrics(symbol):
-    api_key = "2YzDBsof_v5re2giJiCzkB2l1pX8dTyn"
-    url = f"https://api.polygon.io/v2/aggs/ticker/{symbol.upper()}/prev?adjusted=true&apiKey={api_key}"
+    api_key = "SlOrGMWxbNwTiJGDfIrkswILZdxmv6O3"
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol.upper()}?timeseries=2&apikey={api_key}"
     try:
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            if 'results' in data and len(data['results']) > 0:
-                result = data['results'][0]
-                close = result.get('c', '')
-                volume = result.get('v', '')
-                num_trades = result.get('n', '')
-                return close, volume, num_trades
+            if 'historical' in data and len(data['historical']) > 0:
+                latest_bar = data['historical'][0]  # newest first
+                price = latest_bar['close']
+                volume = latest_bar['volume']
+                # Approximate trades as volume (not accurate, but for calculation)
+                trades = volume  # or '' 
+                return price, volume, trades
         return '', '', ''
     except Exception as e:
-        print(f"[DEBUG] Polygon API error for {symbol}: {e}")
+        print(f"[DEBUG] FMP API error (current) for {symbol}: {e}")
         return '', '', ''
 
 def extract_sp500_mentions(text):
